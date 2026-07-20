@@ -2,7 +2,7 @@
 name = "blacknode-controllers"
 version = "0.1.0"
 description = "Generic motion, manipulation, arbitration, policy, and safety controllers for Blacknode."
-requires-blacknode = ">=0.1.0"
+requires-blacknode = ">=0.3.0"
 layer = "controllers"
 component-mode = true
 
@@ -10,6 +10,17 @@ component-mode = true
 description = "Transport-neutral mobile-base control contracts."
 default = false
 capabilities = ["controller.mobile-base"]
+
+[components.mobile-base.adapters.ros2]
+description = "Safety-gated mobile-base commands, scan checks, odometry, and stop over ROS 2 transports."
+default = false
+capabilities = ["adapter.controller.mobile-base.ros2"]
+nodes = ["components/mobile-base/adapters/ros2/nodes"]
+templates = ["components/mobile-base/adapters/ros2/templates"]
+node-types = ["BaseSafetyGate", "ROS2BaseMove", "ROS2BaseStop", "ROS2LaserScanCheck", "ROS2OdomState"]
+
+[components.mobile-base.adapters.ros2.dependencies]
+requires = [{ package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }]
 
 [components.nav2]
 description = "Navigation controller integration over stable navigation capabilities."
@@ -23,8 +34,24 @@ capabilities = ["controller.manipulation"]
 
 [components.policy]
 description = "Learned-policy execution and lifecycle contracts."
-default = false
+default = true
 capabilities = ["controller.policy"]
+nodes = ["components/policy/nodes"]
+
+[components.policy.dependencies]
+pip = ["numpy>=1.24", "pillow>=10"]
+imports = ["numpy", "PIL"]
+
+[components.policy.adapters.ros2]
+description = "Safety-gated learned-policy lifecycle and ROS 2 execution."
+default = false
+capabilities = ["adapter.controller.policy.ros2"]
+nodes = ["components/policy/adapters/ros2/nodes"]
+templates = ["components/policy/adapters/ros2/templates"]
+node-types = ["PolicyRuntime", "PolicySafetyGate"]
+
+[components.policy.adapters.ros2.dependencies]
+requires = [{ package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }]
 
 [components.command-arbitration]
 description = "Deterministic ownership and priority arbitration for commands."
