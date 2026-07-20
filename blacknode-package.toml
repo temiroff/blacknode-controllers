@@ -1,0 +1,37 @@
+[package]
+name = "blacknode-controllers"
+version = "0.1.0"
+description = "Generic motion, manipulation, arbitration, policy, and safety controllers for Blacknode."
+requires-blacknode = ">=0.1.0"
+layer = "controllers"
+component-mode = true
+
+[components.mobile-base]
+description = "Transport-neutral mobile-base control contracts."
+default = false
+capabilities = ["controller.mobile-base"]
+
+[components.nav2]
+description = "Navigation controller integration over stable navigation capabilities."
+default = false
+capabilities = ["controller.navigation"]
+
+[components.manipulation]
+description = "Kinematics and manipulation control contracts."
+default = false
+capabilities = ["controller.manipulation"]
+
+[components.policy]
+description = "Learned-policy execution and lifecycle contracts."
+default = false
+capabilities = ["controller.policy"]
+
+[components.command-arbitration]
+description = "Deterministic ownership and priority arbitration for commands."
+default = false
+capabilities = ["controller.command-arbitration"]
+
+[components.safety-supervisors]
+description = "Freshness, limits, stop, and shutdown supervision."
+default = false
+capabilities = ["controller.safety-supervision"]
