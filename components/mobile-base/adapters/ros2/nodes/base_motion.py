@@ -30,7 +30,18 @@ from typing import Any
 from blacknode.node import Any as AnyPort
 from blacknode.node import Bool, Dict, Float, Int, Text, node
 
-from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
+
+
+class _LazyRosbridgeRuntime:
+    """Delay ROS 2 imports so dependency discovery can load in any folder order."""
+
+    def __getattr__(self, name: str):
+        from blacknode.pkg.blacknode_ros2 import rosbridge_runtime
+
+        return getattr(rosbridge_runtime, name)
+
+
+rb = _LazyRosbridgeRuntime()
 
 _CATEGORY = "Controllers"
 
