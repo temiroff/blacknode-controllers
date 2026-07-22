@@ -6,6 +6,9 @@ requires-blacknode = ">=0.3.0"
 layer = "controllers"
 component-mode = true
 
+[categories]
+"Controllers" = "#f43f5e"
+
 [components.joint-control]
 description = "Transport-neutral joint-space control contracts."
 default = true
