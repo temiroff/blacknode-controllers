@@ -1,0 +1,470 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Move a Robot Joint",
+  "saved_at": "2026-07-21T00:00:00",
+  "entrypoint": {
+    "node_id": "dashboard",
+    "port": "dashboard"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Reads a robot's live joint positions and moves one joint, with a before/after dashboard. SAFE BY DEFAULT: it only previews and sends nothing to the robot until you set armed=true on the move node. WORKS WITH NO ROBOT: the sim_robot node publishes a SIMULATED /joint_states so you can see the whole flow with no hardware. Its positions are fixed, so a simulated 'after' will not actually change \u2014 it shows the path, not real motion. FOR A REAL ROBOT: set sim_robot action=stop (or delete it) so your robot's own /joint_states is used, pick a joint name from the joint names output, set the target position, check the preview, then set armed=true.",
+    "color": "#2e9fe6",
+    "required_packages": [
+      "blacknode-controllers",
+      "blacknode-ros2"
+    ]
+  },
+  "node_meta": {
+    "status": {
+      "id": "status",
+      "type": "ROS2Status",
+      "params": {
+        "transport": "auto",
+        "ensure_rosbridge": true,
+        "host": "127.0.0.1",
+        "port": 9090,
+        "state_topic": "/joint_states",
+        "command_topic": "/joint_commands",
+        "config_topic": "/joint_config",
+        "timeout": 10.0
+      },
+      "pos": [
+        40,
+        240
+      ],
+      "inputs": [
+        "trigger",
+        "transport",
+        "ensure_rosbridge",
+        "host",
+        "port",
+        "state_topic",
+        "command_topic",
+        "config_topic",
+        "timeout"
+      ],
+      "outputs": [
+        "connected",
+        "ready",
+        "transport",
+        "topics",
+        "config",
+        "report"
+      ],
+      "input_types": {
+        "trigger": "Any",
+        "transport": "Text",
+        "ensure_rosbridge": "Bool",
+        "host": "Text",
+        "port": "Int",
+        "state_topic": "Text",
+        "command_topic": "Text",
+        "config_topic": "Text",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "connected": "Bool",
+        "ready": "Bool",
+        "transport": "Text",
+        "topics": "List",
+        "config": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "transport": "auto",
+        "ensure_rosbridge": true,
+        "host": "127.0.0.1",
+        "port": 9090,
+        "state_topic": "/joint_states",
+        "command_topic": "/joint_commands",
+        "config_topic": "/joint_config",
+        "timeout": 10.0
+      },
+      "input_choices": {
+        "transport": [
+          "auto",
+          "native",
+          "rosbridge"
+        ]
+      }
+    },
+    "pose": {
+      "id": "pose",
+      "type": "ROS2JointState",
+      "params": {
+        "transport": "auto",
+        "host": "127.0.0.1",
+        "port": 9090,
+        "topic": "/joint_states",
+        "units": "degrees",
+        "timeout": 10.0
+      },
+      "pos": [
+        440,
+        240
+      ],
+      "inputs": [
+        "trigger",
+        "transport",
+        "host",
+        "port",
+        "topic",
+        "units",
+        "timeout"
+      ],
+      "outputs": [
+        "pose",
+        "names",
+        "report"
+      ],
+      "input_types": {
+        "trigger": "Any",
+        "transport": "Text",
+        "host": "Text",
+        "port": "Int",
+        "topic": "Text",
+        "units": "Text",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "pose": "Dict",
+        "names": "List",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "transport": "auto",
+        "host": "127.0.0.1",
+        "port": 9090,
+        "topic": "/joint_states",
+        "units": "degrees",
+        "timeout": 10.0
+      },
+      "input_choices": {
+        "transport": [
+          "auto",
+          "native",
+          "rosbridge"
+        ],
+        "units": [
+          "radians",
+          "degrees"
+        ]
+      }
+    },
+    "move": {
+      "id": "move",
+      "type": "ROS2SetJoint",
+      "params": {
+        "transport": "auto",
+        "host": "127.0.0.1",
+        "port": 9090,
+        "state_topic": "/joint_states",
+        "command_topic": "/joint_commands",
+        "config_topic": "/joint_config",
+        "joint": "",
+        "position": 35.0,
+        "units": "degrees",
+        "ramp_seconds": 0.8,
+        "hold_seconds": 0.2,
+        "rate_hz": 30.0,
+        "armed": false,
+        "timeout": 10.0,
+        "robot": {}
+      },
+      "pos": [
+        840,
+        240
+      ],
+      "inputs": [
+        "trigger",
+        "transport",
+        "robot",
+        "host",
+        "port",
+        "state_topic",
+        "command_topic",
+        "config_topic",
+        "joint",
+        "position",
+        "units",
+        "ramp_seconds",
+        "hold_seconds",
+        "rate_hz",
+        "armed",
+        "timeout"
+      ],
+      "outputs": [
+        "moved",
+        "joint",
+        "before",
+        "after",
+        "target",
+        "report"
+      ],
+      "input_types": {
+        "trigger": "Any",
+        "transport": "Text",
+        "robot": "Dict",
+        "host": "Text",
+        "port": "Int",
+        "state_topic": "Text",
+        "command_topic": "Text",
+        "config_topic": "Text",
+        "joint": "Text",
+        "position": "Float",
+        "units": "Text",
+        "ramp_seconds": "Float",
+        "hold_seconds": "Float",
+        "rate_hz": "Float",
+        "armed": "Bool",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "moved": "Bool",
+        "joint": "Text",
+        "before": "Dict",
+        "after": "Dict",
+        "target": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "transport": "auto",
+        "host": "127.0.0.1",
+        "port": 9090,
+        "state_topic": "/joint_states",
+        "command_topic": "/joint_commands",
+        "config_topic": "/joint_config",
+        "joint": "",
+        "position": 35.0,
+        "units": "degrees",
+        "ramp_seconds": 0.8,
+        "hold_seconds": 0.2,
+        "rate_hz": 30.0,
+        "armed": false,
+        "timeout": 10.0,
+        "robot": {}
+      },
+      "input_choices": {
+        "transport": [
+          "auto",
+          "native",
+          "rosbridge"
+        ],
+        "units": [
+          "radians",
+          "degrees"
+        ]
+      }
+    },
+    "dashboard": {
+      "id": "dashboard",
+      "type": "ROS2MotionDashboard",
+      "params": {
+        "joint": "",
+        "moved": false,
+        "units": "degrees"
+      },
+      "pos": [
+        1280,
+        240
+      ],
+      "inputs": [
+        "joint",
+        "pose",
+        "before",
+        "after",
+        "target",
+        "moved",
+        "units"
+      ],
+      "outputs": [
+        "dashboard",
+        "live",
+        "summary"
+      ],
+      "input_types": {
+        "joint": "Text",
+        "pose": "Dict",
+        "before": "Dict",
+        "after": "Dict",
+        "target": "Dict",
+        "moved": "Bool",
+        "units": "Text"
+      },
+      "output_types": {
+        "dashboard": "Image",
+        "live": "Bool",
+        "summary": "Dict"
+      },
+      "input_defaults": {
+        "joint": "",
+        "moved": false,
+        "units": "degrees"
+      }
+    },
+    "joints_out": {
+      "id": "joints_out",
+      "type": "Output",
+      "params": {
+        "label": "joint names (copy one into move.joint)"
+      },
+      "pos": [
+        840,
+        520
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "move_out": {
+      "id": "move_out",
+      "type": "Output",
+      "params": {
+        "label": "move result"
+      },
+      "pos": [
+        1280,
+        520
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "sim_robot": {
+      "id": "sim_robot",
+      "type": "ROS2DemoPublisher",
+      "params": {
+        "action": "start",
+        "topic": "/joint_states",
+        "message": "",
+        "msg_type": "sensor_msgs/msg/JointState",
+        "payload": "{name: ['shoulder_pan','elbow','gripper'], position: [0.0, 0.4, 0.2]}",
+        "rate": 10.0
+      },
+      "pos": [
+        40,
+        480
+      ],
+      "inputs": [
+        "trigger",
+        "action",
+        "topic",
+        "message",
+        "msg_type",
+        "payload",
+        "rate"
+      ],
+      "outputs": [
+        "report"
+      ],
+      "input_types": {
+        "trigger": "Any",
+        "action": "Text",
+        "topic": "Text",
+        "message": "Text",
+        "msg_type": "Text",
+        "payload": "Text",
+        "rate": "Float"
+      },
+      "output_types": {
+        "report": "Text"
+      },
+      "input_defaults": {
+        "action": "start",
+        "topic": "/joint_states",
+        "message": "",
+        "msg_type": "sensor_msgs/msg/JointState",
+        "payload": "{name: ['shoulder_pan','elbow','gripper'], position: [0.0, 0.4, 0.2]}",
+        "rate": 10.0
+      },
+      "input_choices": {
+        "action": [
+          "start",
+          "stop"
+        ]
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "status",
+      "from_port": "report",
+      "to": "sim_robot",
+      "to_port": "trigger"
+    },
+    {
+      "from": "sim_robot",
+      "from_port": "report",
+      "to": "pose",
+      "to_port": "trigger"
+    },
+    {
+      "from": "pose",
+      "from_port": "report",
+      "to": "move",
+      "to_port": "trigger"
+    },
+    {
+      "from": "pose",
+      "from_port": "names",
+      "to": "joints_out",
+      "to_port": "value"
+    },
+    {
+      "from": "pose",
+      "from_port": "pose",
+      "to": "dashboard",
+      "to_port": "pose"
+    },
+    {
+      "from": "move",
+      "from_port": "joint",
+      "to": "dashboard",
+      "to_port": "joint"
+    },
+    {
+      "from": "move",
+      "from_port": "before",
+      "to": "dashboard",
+      "to_port": "before"
+    },
+    {
+      "from": "move",
+      "from_port": "after",
+      "to": "dashboard",
+      "to_port": "after"
+    },
+    {
+      "from": "move",
+      "from_port": "target",
+      "to": "dashboard",
+      "to_port": "target"
+    },
+    {
+      "from": "move",
+      "from_port": "moved",
+      "to": "dashboard",
+      "to_port": "moved"
+    },
+    {
+      "from": "move",
+      "from_port": "report",
+      "to": "move_out",
+      "to_port": "value"
+    }
+  ]
+}

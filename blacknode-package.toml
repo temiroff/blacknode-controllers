@@ -1,10 +1,26 @@
 [package]
 name = "blacknode-controllers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generic motion, manipulation, arbitration, policy, and safety controllers for Blacknode."
 requires-blacknode = ">=0.3.0"
 layer = "controllers"
 component-mode = true
+
+[components.joint-control]
+description = "Transport-neutral joint-space control contracts."
+default = true
+capabilities = ["controller.joint-control"]
+
+[components.joint-control.adapters.ros2]
+description = "Joint state, safe single-joint moves, manual move (teach), and live motion dashboards over ROS 2 transports."
+default = true
+capabilities = ["adapter.controller.joint-control.ros2"]
+nodes = ["components/joint-control/adapters/ros2/nodes"]
+templates = ["components/joint-control/adapters/ros2/templates"]
+node-types = ["ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint"]
+
+[components.joint-control.adapters.ros2.dependencies]
+requires = [{ package = "blacknode-ros2", component = "core", version = ">=0.4.0,<1.0.0" }]
 
 [components.mobile-base]
 description = "Transport-neutral mobile-base control contracts."
