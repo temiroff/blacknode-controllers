@@ -99,6 +99,75 @@ def test_generic_set_joint_auto_rosbridge_preview_never_writes(monkeypatch):
     assert "PREVIEW (not armed)" in result["report"]
 
 
+def test_set_joint_uses_wired_robot_transport_and_topics(monkeypatch):
+    monkeypatch.setattr(nr, "available", lambda: (False, "missing rclpy"))
+    monkeypatch.setattr(rb, "available", lambda: (True, ""))
+    captured = {}
+    poses = iter([
+        {"shoulder_pan": 0.0},
+        {"shoulder_pan": math.radians(20.0)},
+    ])
+
+    def fake_read_config(host, port, topic, timeout):
+        captured["config"] = (host, port, topic)
+        return {"commands_allowed": True}
+
+    def fake_read_pose(host, port, topic, timeout):
+        captured.setdefault("poses", []).append((host, port, topic))
+        return next(poses)
+
+    def fake_stream(host, port, topic, names, start, target, **kwargs):
+        captured["command"] = (host, port, topic)
+        return {"ok": True, "sent": 10}
+
+    monkeypatch.setattr(rb, "read_config", fake_read_config)
+    monkeypatch.setattr(rb, "read_pose", fake_read_pose)
+    monkeypatch.setattr(rb, "stream_motion", fake_stream)
+
+    result = _NODE_REGISTRY["ROS2SetJoint"]({
+        "robot": {
+            "ready": True,
+            "host": "robot.local",
+            "port": 9191,
+            "state_topic": "/arm/state",
+            "command_topic": "/arm/command",
+            "config_topic": "/arm/config",
+            "units": "degrees",
+            "interface": {"kind": "rosbridge"},
+        },
+        "joint": "shoulder_pan",
+        "position": 20.0,
+        "armed": True,
+    })
+
+    assert result["moved"] is True
+    assert captured["config"] == ("robot.local", 9191, "/arm/config")
+    assert captured["poses"] == [
+        ("robot.local", 9191, "/arm/state"),
+        ("robot.local", 9191, "/arm/state"),
+    ]
+    assert captured["command"] == ("robot.local", 9191, "/arm/command")
+
+
+def test_set_joint_blocks_when_wired_robot_driver_is_not_ready(monkeypatch):
+    monkeypatch.setattr(rb, "stream_motion", lambda *args, **kwargs: pytest.fail("unready robot must not write"))
+
+    result = _NODE_REGISTRY["ROS2SetJoint"]({
+        "robot": {
+            "ready": False,
+            "error": "robot driver is not running",
+            "interface": {"kind": "rosbridge"},
+        },
+        "joint": "shoulder_pan",
+        "position": 20.0,
+        "armed": True,
+    })
+
+    assert result["moved"] is False
+    assert "robot driver is not running" in result["report"]
+    assert "Start the Robot node" in result["report"]
+
+
 def test_native_joint_state_reads_pose(monkeypatch):
     monkeypatch.setattr(nr, "available", lambda: (True, ""))
     monkeypatch.setattr(nr, "read_pose", lambda *a, **k: {"gripper": math.radians(45.0)})
@@ -496,5 +565,43 @@ def test_templates_validate():
 
     template_dir = _ADAPTER_NODES.parents[0] / "templates"
     for path in sorted(template_dir.glob("*.json")):
-        report = validate_workflow(json.loads(path.read_text(encoding="utf-8")))
+        workflow = json.loads(path.read_text(encoding="utf-8"))
+        assert "ROS2DemoPublisher" not in {
+            meta.get("type")
+            for meta in workflow.get("node_meta", {}).values()
+        }
+        report = validate_workflow(workflow)
         assert report.ok, f"{path.name}: {report.to_dict()}"
+
+
+def test_move_joint_template_uses_real_driver_and_explicit_basic_inputs():
+    template = json.loads(
+        (_ADAPTER_NODES.parents[0] / "templates" / "ros2-robot-joint-move.json").read_text(encoding="utf-8")
+    )
+    nodes = template["node_meta"]
+    edges = template["edges"]
+
+    assert "sim_robot" not in nodes
+    assert nodes["robot"]["type"] == "Robot"
+    assert nodes["robot"]["params"]["action"] == "start"
+    assert nodes["joint_name"]["type"] == "Text"
+    assert nodes["joint_name"]["params"]["value"] == "shoulder_pan"
+    assert nodes["arm_motion"]["type"] == "Bool"
+    assert nodes["arm_motion"]["params"]["value"] is False
+    assert nodes["arm_motion"]["params"]["label"] == "Armed"
+    assert nodes["position_angle"]["type"] == "Float"
+    assert nodes["position_angle"]["params"] == {
+        "value": 35.0,
+        "label": "Position angle",
+    }
+    assert nodes["move"]["params"]["armed"] is False
+    assert {
+        (edge["from"], edge["from_port"], edge["to"], edge["to_port"])
+        for edge in edges
+    } >= {
+        ("robot", "robot", "pose", "robot"),
+        ("robot", "robot", "move", "robot"),
+        ("joint_name", "value", "move", "joint"),
+        ("arm_motion", "value", "move", "armed"),
+        ("position_angle", "value", "move", "position"),
+    }
