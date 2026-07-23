@@ -21,7 +21,7 @@ capabilities = ["adapter.controller.joint-control.ros2"]
 nodes = ["components/joint-control/adapters/ros2/nodes"]
 templates = ["components/joint-control/adapters/ros2/templates"]
 node-types = [
-  "ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint"
+  "ROS2JointSliders", "ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint"
 ]
 
 [components.joint-control.adapters.ros2.dependencies]

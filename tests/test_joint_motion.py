@@ -25,11 +25,44 @@ from blacknode.pkg.blacknode_ros2 import ros2_native_runtime as nr
 from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
 
 NEW_NODES = [
+    "ROS2JointSliders",
     "ROS2JointState",
     "ROS2ManualMove",
     "ROS2MotionDashboard",
     "ROS2SetJoint",
 ]
+
+
+def test_joint_sliders_read_joints_and_move_only_when_armed(monkeypatch):
+    monkeypatch.setattr(nr, "available", lambda: (False, "no rclpy"))
+    monkeypatch.setattr(rb, "available", lambda: (True, ""))
+    monkeypatch.setattr(rb, "read_pose", lambda *a, **k: {"shoulder_pan": 0.0, "gripper": math.radians(10.0)})
+    monkeypatch.setattr(rb, "read_config", lambda *a, **k: {"joints": {
+        "shoulder_pan": {"lower": math.radians(-90), "upper": math.radians(90)},
+    }})
+    moves = []
+    monkeypatch.setattr(rb, "stream_motion",
+                        lambda host, port, cmd, names, start, target, **k:
+                        moves.append(dict(target)) or {"ok": True})
+
+    # Cook the node (disarmed) — it reports joints + limits for the UI.
+    out = _NODE_REGISTRY["ROS2JointSliders"]({
+        "run_id": "t_sliders", "host": "h", "port": 9090, "units": "degrees", "armed": False,
+    })
+    names = [j["name"] for j in out["joints"]]
+    assert names == ["shoulder_pan", "gripper"]
+    pan = next(j for j in out["joints"] if j["name"] == "shoulder_pan")
+    assert pan["min"] == pytest.approx(-90.0) and pan["max"] == pytest.approx(90.0)
+
+    # Disarmed: a slider push is refused.
+    blocked = jm.set_joint_slider_targets("t_sliders", {"shoulder_pan": 30.0})
+    assert blocked["ok"] is False and moves == []
+
+    # Arm, then a push moves the joint, clamped to limits.
+    jm.set_joint_slider_armed("t_sliders", True)
+    ok = jm.set_joint_slider_targets("t_sliders", {"shoulder_pan": 200.0})
+    assert ok["ok"] is True and len(moves) == 1
+    assert moves[0]["shoulder_pan"] == pytest.approx(math.radians(90.0))  # clamped to upper limit
 
 
 def test_new_nodes_registered_with_category_and_package():

@@ -1033,3 +1033,184 @@ def ros2_motion_dashboard(ctx: dict) -> dict:
 <text x="784" y="448" fill="#f8fafc" font-family="monospace" font-size="22">{value_text}</text>
 </svg>"""
     return {"dashboard": _svg_data(svg), "live": live_pose, "summary": summary}
+
+
+# Live per-joint slider control. State is kept per run so the editor can push a
+# new slider value while the node stays live, and the driver holds the last
+# commanded pose between updates.
+_JOINT_SLIDER_STATE: dict[str, dict[str, Any]] = {}
+_JOINT_SLIDER_LOCK = threading.Lock()
+
+
+def _slider_joint_specs(names, pose, limits, units):
+    """One entry per joint for the editor to render a slider: name, bounds, and
+    current value, all in display units. Falls back to a wide default range when
+    the driver publishes no limits."""
+    specs = []
+    for name in names:
+        if name in limits:
+            lo = _from_radians(limits[name][0], units)
+            hi = _from_radians(limits[name][1], units)
+        else:
+            lo, hi = (-180.0, 180.0) if units == "degrees" else (-math.pi, math.pi)
+        specs.append({
+            "name": name,
+            "min": round(min(lo, hi), 3),
+            "max": round(max(lo, hi), 3),
+            "value": round(float(pose.get(name, 0.0)), 3),
+        })
+    return specs
+
+
+@node(
+    name="ROS2JointSliders",
+    category=_CATEGORY,
+    live=True,
+    primary_inputs=["robot"],
+    description=(
+        "Live joint sliders: reads the robot's joints, limits, and current pose, "
+        "then moving a slider commands that joint in real time over ROS 2. Wire a "
+        "Robot descriptor in, Go Live, arm it, and drag a slider to move the robot. "
+        "Motion stays disarmed until you enable it."
+    ),
+    inputs={
+        "trigger": AnyPort,
+        "robot": Dict,
+        "run_id": Text(default="joint_sliders"),
+        "targets": Dict(default={}),
+        "armed": Bool(default=False),
+        "transport": Enum(["auto", "native", "rosbridge"], default="auto"),
+        "host": Text(default="127.0.0.1"),
+        "port": Int(default=9090),
+        "state_topic": Text(default="/joint_states"),
+        "command_topic": Text(default="/joint_commands"),
+        "config_topic": Text(default="/joint_config"),
+        "units": Enum(["radians", "degrees"], default="degrees"),
+        "ramp_seconds": Float(default=0.25),
+        "timeout": Float(default=5.0),
+    },
+    outputs={
+        "joints": List,
+        "pose": Dict,
+        "armed": Bool,
+        "commanded": Bool,
+        "run_id": Text,
+        "report": Text,
+    },
+)
+def ros2_joint_sliders(ctx: dict) -> dict:
+    ctx = _apply_robot_descriptor(ctx)
+    run_id = str(ctx.get("run_id") or "joint_sliders").strip() or "joint_sliders"
+    transport = _resolve_transport(ctx)
+    host = str(ctx.get("host") or "127.0.0.1")
+    port = int(ctx.get("port") or 9090)
+    state_topic = str(ctx.get("state_topic") or "/joint_states")
+    command_topic = str(ctx.get("command_topic") or "/joint_commands")
+    config_topic = str(ctx.get("config_topic") or "/joint_config")
+    units = str(ctx.get("units") or "degrees")
+    timeout = max(0.5, float(ctx.get("timeout") or 5.0))
+    armed = bool(ctx.get("armed", False))
+    ramp_seconds = max(0.0, float(ctx.get("ramp_seconds") or 0.25))
+    blank = {"joints": [], "pose": {}, "armed": armed, "commanded": False, "run_id": run_id}
+
+    if transport == "native":
+        ok, err = nr.available()
+        read_pose = lambda: nr.read_pose(state_topic, min(timeout, 2.0))
+        read_config = lambda: nr.read_config(config_topic, min(timeout, 2.0))
+        limits_of = nr.limits_radians
+    else:
+        ok, err = rb.available()
+        read_pose = lambda: rb.read_pose(host, port, state_topic, min(timeout, 2.0))
+        read_config = lambda: rb.read_config(host, port, config_topic, min(timeout, 2.0))
+        limits_of = rb.limits_radians
+    if not ok:
+        return {**blank, "report": f"joint sliders FAILED: {err}"}
+
+    try:
+        pose_rad = read_pose() or {}
+    except Exception as exc:  # noqa: BLE001
+        return {**blank, "report": f"joint sliders FAILED: {exc}"}
+    if not pose_rad:
+        return {**blank, "report": (
+            f"joint sliders: no JointState on {state_topic} at {host}:{port} — "
+            "is the robot's driver running?"
+        )}
+    try:
+        config = read_config() or {}
+    except Exception:  # noqa: BLE001
+        config = {}
+    limits = limits_of(config)
+    names = list(pose_rad)
+    pose = {name: round(_from_radians(value, units), 3) for name, value in pose_rad.items()}
+    specs = _slider_joint_specs(names, pose, limits, units)
+
+    with _JOINT_SLIDER_LOCK:
+        _JOINT_SLIDER_STATE[run_id] = {
+            "transport": transport, "host": host, "port": port,
+            "command_topic": command_topic, "units": units, "names": names,
+            "limits": limits, "ramp_seconds": ramp_seconds, "timeout": timeout,
+            "armed": armed, "held_rad": dict(pose_rad),
+        }
+    report = (
+        f"LIVE joint sliders on {state_topic} ({len(names)} joints). "
+        + ("ARMED - drag a slider to move the robot." if armed
+           else "DISARMED - enable Arm to move; sliders preview only.")
+    )
+    return {"joints": specs, "pose": pose, "armed": armed, "commanded": False,
+            "run_id": run_id, "report": report}
+
+
+def set_joint_slider_targets(run_id: str, targets: dict[str, Any]) -> dict[str, Any]:
+    """Command the robot from slider values pushed live by the editor. Clamps to
+    limits, moves only from the held pose, and refuses unless armed."""
+    with _JOINT_SLIDER_LOCK:
+        state = _JOINT_SLIDER_STATE.get(run_id)
+        if state is None:
+            return {"ok": False, "report": f"joint sliders '{run_id}' is not running"}
+        state = dict(state)
+        held = dict(state["held_rad"])
+    if not state.get("armed"):
+        return {"ok": False, "report": "BLOCKED: arm the sliders before moving"}
+    units = state["units"]
+    limits = state["limits"]
+    names = state["names"]
+    target = dict(held)
+    changed = []
+    for joint, value in (targets or {}).items():
+        if joint not in names or not isinstance(value, (int, float)):
+            continue
+        rad = _to_radians(float(value), units)
+        if joint in limits:
+            lo, hi = limits[joint]
+            rad = max(lo, min(hi, rad))
+        target[joint] = rad
+        changed.append(joint)
+    if not changed:
+        return {"ok": True, "report": "no in-range joint change"}
+
+    if state["transport"] == "native":
+        result = nr.stream_motion(
+            state["command_topic"], names, held, target,
+            ramp_seconds=state["ramp_seconds"], hold_seconds=0.05, rate_hz=30.0,
+            timeout=state["timeout"])
+    else:
+        result = rb.stream_motion(
+            state["host"], state["port"], state["command_topic"], names, held, target,
+            ramp_seconds=state["ramp_seconds"], hold_seconds=0.05, rate_hz=30.0,
+            timeout=state["timeout"])
+    if not result.get("ok", True):
+        return {"ok": False, "report": f"joint move FAILED: {result.get('error', 'unknown')}"}
+    with _JOINT_SLIDER_LOCK:
+        if run_id in _JOINT_SLIDER_STATE:
+            _JOINT_SLIDER_STATE[run_id]["held_rad"] = target
+    return {"ok": True, "report": f"moved {', '.join(changed)}", "commanded": True}
+
+
+def set_joint_slider_armed(run_id: str, armed: bool) -> dict[str, Any]:
+    """Toggle the armed gate for a live slider run without recooking."""
+    with _JOINT_SLIDER_LOCK:
+        state = _JOINT_SLIDER_STATE.get(run_id)
+        if state is None:
+            return {"ok": False, "report": f"joint sliders '{run_id}' is not running"}
+        state["armed"] = bool(armed)
+    return {"ok": True, "report": f"joint sliders {'armed' if armed else 'disarmed'}"}

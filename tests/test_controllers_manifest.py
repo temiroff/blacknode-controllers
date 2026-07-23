@@ -19,7 +19,7 @@ def test_joint_control_ros2_adapter_is_enabled_and_owns_the_motion_nodes():
     adapter = info.components["joint-control"]["adapters"]["ros2"]
     assert adapter["enabled"] is True
     assert set(adapter["node_types"]) == {
-        "ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint",
+        "ROS2JointSliders", "ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint",
     }
     # the adapter must rest on the ROS 2 integration layer, never the reverse
     assert adapter["requirements"][0]["package"] == "blacknode-ros2"
