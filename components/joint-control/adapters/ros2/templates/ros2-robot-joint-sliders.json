@@ -403,9 +403,36 @@
           "degrees"
         ]
       }
+    },
+    "armed": {
+      "id": "armed",
+      "type": "Bool",
+      "params": {
+        "value": false,
+        "label": "Armed"
+      },
+      "pos": [
+        700,
+        460
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Bool"
+      },
+      "input_defaults": {}
     }
   },
   "edges": [
+    {
+      "from": "armed",
+      "from_port": "value",
+      "to": "sliders",
+      "to_port": "armed"
+    },
     {
       "from": "status",
       "from_port": "report",

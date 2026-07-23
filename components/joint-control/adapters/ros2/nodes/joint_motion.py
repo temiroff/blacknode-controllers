@@ -69,6 +69,11 @@ def _apply_robot_descriptor(ctx: dict) -> dict:
         merged["port"] = robot["port"]
     if robot.get("state_topic"):
         merged["topic"] = robot["state_topic"]
+        merged["state_topic"] = robot["state_topic"]
+    if robot.get("command_topic"):
+        merged["command_topic"] = robot["command_topic"]
+    if robot.get("config_topic"):
+        merged["config_topic"] = robot["config_topic"]
     if robot.get("units"):
         merged["units"] = robot["units"]
     interface = robot.get("interface") if isinstance(robot.get("interface"), dict) else {}
@@ -316,6 +321,7 @@ def ros2_native_set_joint(ctx: dict) -> dict:
     outputs={"moved": Bool, "joint": Text, "before": Dict, "after": Dict, "target": Dict, "report": Text},
 )
 def ros2_set_joint(ctx: dict) -> dict:
+    ctx = _apply_robot_descriptor(ctx)
     manual_action = str(ctx.get("manual_action") or ctx.get("teach_action") or "check").strip().lower()
     if manual_action not in {"status", "check"}:
         return {
@@ -326,18 +332,27 @@ def ros2_set_joint(ctx: dict) -> dict:
             "target": {},
             "report": f"BLOCKED: manual-move action '{manual_action}' was requested in this run; recook with action=check before commanding motion.",
         }
-    transport = _resolve_transport(ctx)
-    if transport == "native":
-        result = ros2_native_set_joint(ctx)
-        result["report"] = f"{_transport_report(ctx, transport)}\n{result.get('report', '')}"
-        return result
-
     robot = ctx.get("robot") if isinstance(ctx.get("robot"), dict) else {}
     joint = str(ctx.get("joint") or "").strip()
     units = str(ctx.get("units") or robot.get("units") or "degrees")
     blocked = {"moved": False, "joint": joint, "before": {}, "after": {}, "target": {}}
     if not joint:
         return {**blocked, "report": "BLOCKED: set 'joint' to a joint name (discover them with ROS2JointState)."}
+    if robot and robot.get("ready") is False:
+        reason = str(robot.get("error") or "the selected robot driver is not running")
+        return {
+            **blocked,
+            "report": (
+                f"BLOCKED: robot is not ready: {reason}. "
+                "Start the Robot node and confirm its report before arming motion."
+            ),
+        }
+
+    transport = _resolve_transport(ctx)
+    if transport == "native":
+        result = ros2_native_set_joint(ctx)
+        result["report"] = f"{_transport_report(ctx, transport)}\n{result.get('report', '')}"
+        return result
 
     host = str(ctx.get("host") or robot.get("host") or "127.0.0.1")
     port = int(ctx.get("port") or robot.get("port") or 9090)

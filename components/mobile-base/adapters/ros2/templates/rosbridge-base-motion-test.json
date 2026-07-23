@@ -200,9 +200,36 @@
         "odom_topic": "/odom",
         "timeout": 5.0
       }
+    },
+    "armed": {
+      "id": "armed",
+      "type": "Bool",
+      "params": {
+        "value": false,
+        "label": "Armed"
+      },
+      "pos": [
+        220,
+        200
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Bool"
+      },
+      "input_defaults": {}
     }
   },
   "edges": [
+    {
+      "from": "armed",
+      "from_port": "value",
+      "to": "gate",
+      "to_port": "armed"
+    },
     {
       "from": "scan",
       "from_port": "clearance_m",
