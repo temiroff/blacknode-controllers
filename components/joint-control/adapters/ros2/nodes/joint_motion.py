@@ -1094,6 +1094,7 @@ def _slider_joint_specs(names, pose, limits, units):
         "pose": Dict,
         "armed": Bool,
         "commanded": Bool,
+        "live": Bool,
         "run_id": Text,
         "report": Text,
     },
@@ -1101,6 +1102,9 @@ def _slider_joint_specs(names, pose, limits, units):
 def ros2_joint_sliders(ctx: dict) -> dict:
     ctx = _apply_robot_descriptor(ctx)
     run_id = str(ctx.get("run_id") or "joint_sliders").strip() or "joint_sliders"
+    # A plain Run reads once; Go Live keeps the sliders driving the robot. The
+    # 'live' output tells the editor to show LIVE, not "snapshot not updating".
+    is_live = ctx.get("__run_mode__") != "once"
     transport = _resolve_transport(ctx)
     host = str(ctx.get("host") or "127.0.0.1")
     port = int(ctx.get("port") or 9090)
@@ -1111,7 +1115,7 @@ def ros2_joint_sliders(ctx: dict) -> dict:
     timeout = max(0.5, float(ctx.get("timeout") or 5.0))
     armed = bool(ctx.get("armed", False))
     ramp_seconds = max(0.0, float(ctx.get("ramp_seconds") or 0.25))
-    blank = {"joints": [], "pose": {}, "armed": armed, "commanded": False, "run_id": run_id}
+    blank = {"joints": [], "pose": {}, "armed": armed, "commanded": False, "live": is_live, "run_id": run_id}
 
     if transport == "native":
         ok, err = nr.available()
@@ -1157,7 +1161,7 @@ def ros2_joint_sliders(ctx: dict) -> dict:
            else "DISARMED - enable Arm to move; sliders preview only.")
     )
     return {"joints": specs, "pose": pose, "armed": armed, "commanded": False,
-            "run_id": run_id, "report": report}
+            "live": is_live, "run_id": run_id, "report": report}
 
 
 def set_joint_slider_targets(run_id: str, targets: dict[str, Any]) -> dict[str, Any]:
