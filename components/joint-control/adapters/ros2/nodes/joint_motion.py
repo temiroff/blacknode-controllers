@@ -50,6 +50,34 @@ _teach_monitor_lock = threading.Lock()
 _teach_monitors: dict[str, dict[str, Any]] = {}
 
 
+def _apply_robot_descriptor(ctx: dict) -> dict:
+    """Derive the ROS connection from a wired Robot descriptor.
+
+    When a Robot node's ``robot`` output is connected, take its host, port,
+    joint-state topic, units, and transport instead of hand-matched params — so
+    one edge (robot.robot -> node.robot) is enough and can never drift from the
+    Robot node's own settings. Falls through to the explicit params when nothing
+    is wired.
+    """
+    robot = ctx.get("robot") if isinstance(ctx.get("robot"), dict) else {}
+    if not robot:
+        return ctx
+    merged = dict(ctx)
+    if robot.get("host"):
+        merged["host"] = robot["host"]
+    if robot.get("port"):
+        merged["port"] = robot["port"]
+    if robot.get("state_topic"):
+        merged["topic"] = robot["state_topic"]
+    if robot.get("units"):
+        merged["units"] = robot["units"]
+    interface = robot.get("interface") if isinstance(robot.get("interface"), dict) else {}
+    kind = str(interface.get("kind") or "")
+    if kind in {"native", "rosbridge"}:
+        merged["transport"] = kind
+    return merged
+
+
 def _resolve_transport(ctx: dict) -> str:
     requested = str(ctx.get("transport") or "auto").strip().lower()
     if requested in {"native", "rosbridge"}:
@@ -415,9 +443,15 @@ def ros2_set_joint(ctx: dict) -> dict:
 @node(
     name="ROS2JointState",
     category=_CATEGORY,
-    description="Read joint state using native rclpy when available, otherwise rosbridge.",
+    primary_inputs=["robot"],
+    description=(
+        "Read joint state using native rclpy when available, otherwise rosbridge. "
+        "Wire a Robot node's 'robot' output into 'robot' and it uses that robot's "
+        "host, port, joint-state topic, and units automatically."
+    ),
     inputs={
         "trigger": AnyPort,
+        "robot": Dict(default={}),
         "transport": Enum(["auto", "native", "rosbridge"], default="auto"),
         "host": Text(default="127.0.0.1"),
         "port": Int(default=9090),
@@ -428,6 +462,7 @@ def ros2_set_joint(ctx: dict) -> dict:
     outputs={"pose": Dict, "names": List, "report": Text},
 )
 def ros2_joint_state(ctx: dict) -> dict:
+    ctx = _apply_robot_descriptor(ctx)
     transport = _resolve_transport(ctx)
     if transport == "native":
         result = ros2_native_joint_state(ctx)

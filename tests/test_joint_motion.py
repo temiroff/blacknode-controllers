@@ -132,6 +132,25 @@ def test_native_set_joint_streams_absolute_target(monkeypatch):
     assert "native set gripper" in result["report"]
 
 
+def test_joint_state_derives_connection_from_wired_robot(monkeypatch):
+    # One 'robot' edge should drive host/port/topic/units — no hand-matched params.
+    monkeypatch.setattr(nr, "available", lambda: (False, "missing rclpy"))
+    monkeypatch.setattr(rb, "available", lambda: (True, ""))
+    captured = {}
+    monkeypatch.setattr(rb, "read_pose", lambda host, port, topic, timeout: captured.update(
+        host=host, port=port, topic=topic) or {"shoulder_pan": math.radians(12.0)})
+
+    result = _NODE_REGISTRY["ROS2JointState"]({
+        "robot": {
+            "host": "192.168.1.50", "port": 9091, "state_topic": "/arm/joint_states",
+            "units": "degrees", "interface": {"kind": "rosbridge"},
+        },
+    })
+
+    assert captured == {"host": "192.168.1.50", "port": 9091, "topic": "/arm/joint_states"}
+    assert result["pose"]["shoulder_pan"] == pytest.approx(12.0)  # degrees, from robot.units
+
+
 def test_nodes_structured_error_without_transports(monkeypatch):
     monkeypatch.setattr(nr, "available", lambda: (False, "rclpy is not importable"))
     monkeypatch.setattr(rb, "available", lambda: (False, "roslibpy is not installed"))
