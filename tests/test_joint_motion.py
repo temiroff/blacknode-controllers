@@ -21,16 +21,73 @@ _import_nodes_module("blacknode.pkg.blacknode_controllers.joint_control.adapters
 _tag_new_package_nodes(_before, "blacknode-controllers", _ADAPTER_NODES, "joint-control", "ros2")
 
 from blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2 import joint_motion as jm
+from blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2 import motion_profiles as mp
 from blacknode.pkg.blacknode_ros2 import ros2_native_runtime as nr
 from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
 
 NEW_NODES = [
+    "JointMotionProfile",
     "ROS2JointSliders",
     "ROS2JointState",
     "ROS2ManualMove",
     "ROS2MotionDashboard",
     "ROS2SetJoint",
 ]
+
+
+@pytest.mark.parametrize("mode", ["direct", "linear", "trapezoidal", "minimum_jerk"])
+def test_joint_motion_profile_node_previews_supported_modes(mode):
+    result = _NODE_REGISTRY["JointMotionProfile"]({
+        "mode": mode,
+        "distance": 30.0,
+        "units": "degrees",
+        "min_duration": 0.8,
+        "max_velocity": 90.0,
+        "max_acceleration": 180.0,
+        "rate_hz": 50.0,
+    })
+
+    assert result["profile"]["kind"] == "blacknode.joint-motion-profile"
+    assert result["profile"]["mode"] == mode
+    assert result["samples"][0]["position"] == pytest.approx(0.0)
+    assert result["samples"][-1]["position"] == pytest.approx(30.0)
+    assert result["preview"].startswith("data:image/svg+xml;base64,")
+    assert mode in result["report"]
+
+
+def test_trapezoidal_profile_is_monotonic_and_respects_limits():
+    profile = mp.canonical_profile(
+        mode="trapezoidal",
+        units="degrees",
+        min_duration=0.0,
+        max_velocity=60.0,
+        max_acceleration=120.0,
+        rate_hz=100.0,
+    )
+    plan = mp.plan_profile(profile, math.radians(10.0))
+
+    assert plan["alphas"][0] == 0.0
+    assert plan["alphas"][-1] == 1.0
+    assert all(a <= b for a, b in zip(plan["alphas"], plan["alphas"][1:]))
+    assert plan["peak_velocity_rad_s"] <= math.radians(60.0) + 1e-9
+    assert plan["peak_acceleration_rad_s2"] <= math.radians(120.0) + 1e-9
+
+
+def test_minimum_jerk_profile_starts_and_ends_at_rest():
+    profile = mp.canonical_profile(
+        mode="minimum_jerk",
+        units="radians",
+        min_duration=1.0,
+        max_velocity=2.0,
+        max_acceleration=4.0,
+        rate_hz=100.0,
+    )
+    plan = mp.plan_profile(profile, 0.5)
+
+    assert plan["samples"][0]["velocity"] == pytest.approx(0.0)
+    assert plan["samples"][0]["acceleration"] == pytest.approx(0.0)
+    assert plan["samples"][-1]["velocity"] == pytest.approx(0.0)
+    assert plan["samples"][-1]["acceleration"] == pytest.approx(0.0)
 
 
 def test_joint_sliders_read_joints_and_move_only_when_armed(monkeypatch):
@@ -118,6 +175,7 @@ def test_set_joint_uses_wired_robot_transport_and_topics(monkeypatch):
 
     def fake_stream(host, port, topic, names, start, target, **kwargs):
         captured["command"] = (host, port, topic)
+        captured["motion"] = kwargs
         return {"ok": True, "sent": 10}
 
     monkeypatch.setattr(rb, "read_config", fake_read_config)
@@ -147,6 +205,45 @@ def test_set_joint_uses_wired_robot_transport_and_topics(monkeypatch):
         ("robot.local", 9191, "/arm/state"),
     ]
     assert captured["command"] == ("robot.local", 9191, "/arm/command")
+    assert captured["motion"]["alphas"][0] == 0.0
+    assert captured["motion"]["alphas"][-1] == 1.0
+    assert captured["motion"]["rate_hz"] == 30.0
+
+
+def test_set_joint_consumes_wired_trapezoidal_profile(monkeypatch):
+    monkeypatch.setattr(nr, "available", lambda: (False, "missing rclpy"))
+    monkeypatch.setattr(rb, "available", lambda: (True, ""))
+    poses = iter([{"shoulder_pan": 0.0}, {"shoulder_pan": math.radians(30.0)}])
+    monkeypatch.setattr(rb, "read_pose", lambda *args, **kwargs: next(poses))
+    captured = {}
+
+    def fake_stream(*args, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "sent": len(kwargs["alphas"])}
+
+    monkeypatch.setattr(rb, "stream_motion", fake_stream)
+    profile = mp.canonical_profile(
+        mode="trapezoidal",
+        units="degrees",
+        min_duration=0.5,
+        max_velocity=60.0,
+        max_acceleration=120.0,
+        rate_hz=50.0,
+    )
+    result = _NODE_REGISTRY["ROS2SetJoint"]({
+        "transport": "rosbridge",
+        "joint": "shoulder_pan",
+        "position": 30.0,
+        "units": "degrees",
+        "motion_profile": profile,
+        "armed": True,
+    })
+
+    assert result["moved"] is True
+    assert captured["alphas"][0] == 0.0
+    assert captured["alphas"][-1] == 1.0
+    assert captured["rate_hz"] == 50.0
+    assert "trapezoidal profile" in result["report"]
 
 
 def test_set_joint_blocks_when_wired_robot_driver_is_not_ready(monkeypatch):
@@ -594,6 +691,8 @@ def test_move_joint_template_uses_real_driver_and_explicit_basic_inputs():
         "value": 35.0,
         "label": "Position angle",
     }
+    assert nodes["motion_profile"]["type"] == "JointMotionProfile"
+    assert nodes["motion_profile"]["params"]["mode"] == "trapezoidal"
     assert nodes["move"]["params"]["armed"] is False
     assert {
         (edge["from"], edge["from_port"], edge["to"], edge["to_port"])
@@ -604,4 +703,5 @@ def test_move_joint_template_uses_real_driver_and_explicit_basic_inputs():
         ("joint_name", "value", "move", "joint"),
         ("arm_motion", "value", "move", "armed"),
         ("position_angle", "value", "move", "position"),
+        ("motion_profile", "profile", "move", "motion_profile"),
     }

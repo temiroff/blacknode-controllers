@@ -14,7 +14,7 @@ second transport can be added later as a sibling adapter.
 
 | Component | Default | ROS 2 adapter nodes |
 |---|---|---|
-| `joint-control` | on | `ROS2JointState`, `ROS2SetJoint`, `ROS2ManualMove`, `ROS2MotionDashboard` |
+| `joint-control` | on | `JointMotionProfile`, `ROS2JointState`, `ROS2SetJoint`, `ROS2ManualMove`, `ROS2MotionDashboard` |
 | `mobile-base` | off | `BaseSafetyGate`, `ROS2BaseMove`, `ROS2BaseStop`, `ROS2LaserScanCheck`, `ROS2OdomState` |
 | `policy` | on | `PolicyRuntime`, `PolicySafetyGate` |
 | `nav2`, `manipulation`, `command-arbitration`, `safety-supervisors` | off | contracts only, not yet implemented |
@@ -31,6 +31,13 @@ disarmed it still reads live pose, so the preview shows real numbers and the
 exact target it *would* command. Armed moves sync to the current pose first,
 clamp to any limits published on the config topic, and stream a heartbeat so
 the robot driver's own timeout still applies.
+
+`JointMotionProfile` selects and previews `direct`, `linear`, `trapezoidal`,
+or `minimum_jerk` point-to-point motion. It reports the calculated duration,
+sample count, peak velocity, and peak acceleration and outputs a canonical
+profile contract for `ROS2SetJoint`. The motion node remains the only component
+that can publish, so profiling does not bypass its disarmed gate or limits.
+`linear` remains the default on saved and unwired `ROS2SetJoint` nodes.
 
 `ROS2ManualMove` releases or holds torque for hand positioning and owns the
 live joint monitor; `ROS2MotionDashboard` renders either its live pose or a
