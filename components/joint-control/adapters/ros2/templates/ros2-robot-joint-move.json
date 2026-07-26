@@ -9,7 +9,7 @@
   },
   "metadata": {
     "template": true,
-    "description": "Starts the selected robot driver, reads live joint positions, and moves one named joint with a before/after dashboard. The visible Joint name Text node defaults to shoulder_pan. Motion stays disarmed until the Arm motion Bool node is explicitly enabled.",
+    "description": "Starts the selected robot driver, reads live joint positions, previews a selectable point-to-point profile, and moves one named joint with a before/after dashboard. The visible Joint name Text node defaults to shoulder_pan. Motion stays disarmed until the Arm motion Bool node is explicitly enabled.",
     "color": "#2e9fe6",
     "required_packages": [
       "blacknode-controllers",
@@ -180,7 +180,11 @@
         "joint": "shoulder_pan",
         "position": 35.0,
         "units": "degrees",
+        "motion_profile": {},
+        "profile_mode": "linear",
         "ramp_seconds": 0.8,
+        "max_velocity": 90.0,
+        "max_acceleration": 180.0,
         "hold_seconds": 0.2,
         "rate_hz": 30.0,
         "armed": false,
@@ -203,7 +207,11 @@
         "joint",
         "position",
         "units",
+        "motion_profile",
+        "profile_mode",
         "ramp_seconds",
+        "max_velocity",
+        "max_acceleration",
         "hold_seconds",
         "rate_hz",
         "armed",
@@ -229,7 +237,11 @@
         "joint": "Text",
         "position": "Float",
         "units": "Text",
+        "motion_profile": "Dict",
+        "profile_mode": "Text",
         "ramp_seconds": "Float",
+        "max_velocity": "Float",
+        "max_acceleration": "Float",
         "hold_seconds": "Float",
         "rate_hz": "Float",
         "armed": "Bool",
@@ -253,7 +265,11 @@
         "joint": "",
         "position": 35.0,
         "units": "degrees",
+        "motion_profile": {},
+        "profile_mode": "linear",
         "ramp_seconds": 0.8,
+        "max_velocity": 90.0,
+        "max_acceleration": 180.0,
         "hold_seconds": 0.2,
         "rate_hz": 30.0,
         "armed": false,
@@ -511,6 +527,12 @@
         "units": [
           "radians",
           "degrees"
+        ],
+        "profile_mode": [
+          "direct",
+          "linear",
+          "trapezoidal",
+          "minimum_jerk"
         ]
       }
     },
@@ -575,6 +597,76 @@
         "value": "Float"
       },
       "input_defaults": {}
+    },
+    "motion_profile": {
+      "id": "motion_profile",
+      "type": "JointMotionProfile",
+      "params": {
+        "mode": "trapezoidal",
+        "distance": 35.0,
+        "units": "degrees",
+        "min_duration": 0.8,
+        "max_velocity": 90.0,
+        "max_acceleration": 180.0,
+        "rate_hz": 50.0
+      },
+      "pos": [
+        840,
+        680
+      ],
+      "inputs": [
+        "mode",
+        "distance",
+        "units",
+        "min_duration",
+        "max_velocity",
+        "max_acceleration",
+        "rate_hz"
+      ],
+      "outputs": [
+        "profile",
+        "samples",
+        "duration",
+        "preview",
+        "report"
+      ],
+      "input_types": {
+        "mode": "Text",
+        "distance": "Float",
+        "units": "Text",
+        "min_duration": "Float",
+        "max_velocity": "Float",
+        "max_acceleration": "Float",
+        "rate_hz": "Float"
+      },
+      "output_types": {
+        "profile": "Dict",
+        "samples": "List",
+        "duration": "Float",
+        "preview": "Image",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "mode": "trapezoidal",
+        "distance": 30.0,
+        "units": "degrees",
+        "min_duration": 0.8,
+        "max_velocity": 90.0,
+        "max_acceleration": 180.0,
+        "rate_hz": 50.0
+      },
+      "input_choices": {
+        "mode": [
+          "direct",
+          "linear",
+          "trapezoidal",
+          "minimum_jerk"
+        ],
+        "units": [
+          "degrees",
+          "radians"
+        ]
+      }
     }
   },
   "edges": [
@@ -619,6 +711,12 @@
       "from_port": "value",
       "to": "move",
       "to_port": "position"
+    },
+    {
+      "from": "motion_profile",
+      "from_port": "profile",
+      "to": "move",
+      "to_port": "motion_profile"
     },
     {
       "from": "pose",

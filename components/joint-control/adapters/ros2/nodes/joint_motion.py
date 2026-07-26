@@ -25,6 +25,8 @@ from typing import Any
 from blacknode.node import Any as AnyPort
 from blacknode.node import Bool, Dict, Enum, Float, Image, Int, List, Text, _NODE_REGISTRY, node
 
+from .motion_profiles import canonical_profile, plan_profile
+
 
 class _LazyNativeRuntime:
     """Delay ROS 2 imports so dependency discovery can load in any folder order."""
@@ -163,6 +165,23 @@ def _from_radians(value: float, units: str) -> float:
     return math.degrees(value) if units == "degrees" else value
 
 
+def _motion_plan(ctx: dict, distance_rad: float) -> dict[str, Any]:
+    """Resolve a wired profile contract or build one from this node's inputs."""
+    wired = ctx.get("motion_profile")
+    if isinstance(wired, dict) and wired:
+        profile = dict(wired)
+    else:
+        profile = canonical_profile(
+            mode=str(ctx.get("profile_mode") or "linear"),
+            units=str(ctx.get("units") or "degrees"),
+            min_duration=float(ctx.get("ramp_seconds") or 0.0),
+            max_velocity=float(ctx.get("max_velocity") or 90.0),
+            max_acceleration=float(ctx.get("max_acceleration") or 180.0),
+            rate_hz=float(ctx.get("rate_hz") or 30.0),
+        )
+    return plan_profile(profile, distance_rad)
+
+
 def ros2_native_joint_state(ctx: dict) -> dict:
     """Read the current pose from a JointState topic through native rclpy."""
     ok, err = nr.available()
@@ -235,6 +254,10 @@ def ros2_native_set_joint(ctx: dict) -> dict:
         target_rad_value = raw_target_rad
     target_rad = dict(start_rad)
     target_rad[joint] = target_rad_value
+    try:
+        motion_plan = _motion_plan(ctx, abs(target_rad_value - start_rad[joint]))
+    except (TypeError, ValueError) as exc:
+        return {**blocked, "report": f"BLOCKED: invalid motion profile: {exc}"}
 
     before = {n: _from_radians(v, units) for n, v in start_rad.items()}
     target = {n: _from_radians(v, units) for n, v in target_rad.items()}
@@ -254,7 +277,9 @@ def ros2_native_set_joint(ctx: dict) -> dict:
             "target": target,
             "report": (
                 f"PREVIEW (not armed): {joint} currently {before[joint]:.2f} {units}, "
-                f"would move to {target[joint]:.2f}{clamp_note}.{range_note} Set armed=true to actually move it."
+                f"would move to {target[joint]:.2f}{clamp_note} using {motion_plan['mode']} "
+                f"({motion_plan['duration']:.3f}s, {len(motion_plan['alphas'])} targets)."
+                f"{range_note} Set armed=true to actually move it."
             ),
         }
 
@@ -270,7 +295,8 @@ def ros2_native_set_joint(ctx: dict) -> dict:
 
     result = nr.stream_motion(
         command_topic, names, start_rad, target_rad,
-        ramp_seconds=ramp_seconds, hold_seconds=hold_seconds, rate_hz=rate_hz, timeout=timeout,
+        ramp_seconds=motion_plan["duration"], hold_seconds=hold_seconds,
+        rate_hz=motion_plan["rate_hz"], timeout=timeout, alphas=motion_plan["alphas"],
     )
     if not result.get("ok"):
         return {
@@ -290,7 +316,8 @@ def ros2_native_set_joint(ctx: dict) -> dict:
     moved = abs(after_rad.get(joint, start_rad[joint]) - start_rad[joint]) >= math.radians(0.5)
     report = (
         f"native set {joint}: {before[joint]:.2f} -> {after.get(joint, before[joint]):.2f} {units} "
-        f"(target {target[joint]:.2f}{clamp_note}); streamed {result.get('sent', 0)} commands at {rate_hz:g} Hz.{range_note}"
+        f"(target {target[joint]:.2f}{clamp_note}); {motion_plan['mode']} profile streamed "
+        f"{result.get('sent', 0)} commands at {motion_plan['rate_hz']:g} Hz.{range_note}"
     )
     return {"moved": moved, "joint": joint, "before": before, "after": after, "target": target, "report": report}
 
@@ -312,7 +339,11 @@ def ros2_native_set_joint(ctx: dict) -> dict:
         "joint": Text(default=""),
         "position": Float(default=0.0),
         "units": Enum(["radians", "degrees"], default="degrees"),
+        "motion_profile": Dict(default={}),
+        "profile_mode": Enum(["direct", "linear", "trapezoidal", "minimum_jerk"], default="linear"),
         "ramp_seconds": Float(default=0.8),
+        "max_velocity": Float(default=90.0),
+        "max_acceleration": Float(default=180.0),
         "hold_seconds": Float(default=0.2),
         "rate_hz": Float(default=30.0),
         "armed": Bool(default=False),
@@ -391,6 +422,10 @@ def ros2_set_joint(ctx: dict) -> dict:
         target_value = min(upper, max(lower, raw_target_rad))
     target_rad = dict(start_rad)
     target_rad[joint] = target_value
+    try:
+        motion_plan = _motion_plan(ctx, abs(target_value - start_rad[joint]))
+    except (TypeError, ValueError) as exc:
+        return {**blocked, "report": f"BLOCKED: invalid motion profile: {exc}"}
     before = {name: _from_radians(value, units) for name, value in start_rad.items()}
     target = {name: _from_radians(value, units) for name, value in target_rad.items()}
     clamp_note = "" if abs(raw_target_rad - target_value) < 1e-9 else f" (clamped to {target[joint]:.2f})"
@@ -409,7 +444,9 @@ def ros2_set_joint(ctx: dict) -> dict:
             "target": target,
             "report": (
                 f"{_transport_report(ctx, transport)}\nPREVIEW (not armed): {joint} currently {before[joint]:.2f} {units}, "
-                f"would move to {target[joint]:.2f}{clamp_note}.{range_note} Set armed=true to move."
+                f"would move to {target[joint]:.2f}{clamp_note} using {motion_plan['mode']} "
+                f"({motion_plan['duration']:.3f}s, {len(motion_plan['alphas'])} targets)."
+                f"{range_note} Set armed=true to move."
             ),
         }
     if config and config.get("commands_allowed") is False:
@@ -422,10 +459,11 @@ def ros2_set_joint(ctx: dict) -> dict:
         list(start_rad),
         start_rad,
         target_rad,
-        ramp_seconds=ramp_seconds,
+        ramp_seconds=motion_plan["duration"],
         hold_seconds=hold_seconds,
-        rate_hz=rate_hz,
+        rate_hz=motion_plan["rate_hz"],
         timeout=timeout,
+        alphas=motion_plan["alphas"],
     )
     if not result.get("ok"):
         return {
@@ -450,7 +488,9 @@ def ros2_set_joint(ctx: dict) -> dict:
         "target": target,
         "report": (
             f"{_transport_report(ctx, transport)}\nrosbridge set {joint}: {before[joint]:.2f} -> "
-            f"{after.get(joint, before[joint]):.2f} {units} (target {target[joint]:.2f}{clamp_note}).{range_note}"
+            f"{after.get(joint, before[joint]):.2f} {units} (target {target[joint]:.2f}{clamp_note}); "
+            f"{motion_plan['mode']} profile streamed {result.get('sent', 0)} commands at "
+            f"{motion_plan['rate_hz']:g} Hz.{range_note}"
         ),
     }
 

@@ -1,1 +1,1 @@
-from . import joint_motion  # noqa: F401
+from . import joint_motion, motion_profiles  # noqa: F401
