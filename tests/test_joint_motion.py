@@ -483,6 +483,75 @@ def test_manual_monitor_discards_stale_joint_subscription(monkeypatch):
     assert "subscription stale" in item["error"]
 
 
+def test_native_manual_monitor_reuses_one_read_only_subscription(monkeypatch):
+    class StopAfterTwoTicks:
+        def __init__(self):
+            self.calls = 0
+
+        def wait(self, _timeout):
+            self.calls += 1
+            return self.calls > 2
+
+    session = SimpleNamespace(
+        wait_for_pose=lambda _timeout: {"shoulder_pan": 0.0},
+        wait_for_config=lambda _timeout: {"torque_enabled": False},
+        seed_config=lambda _config: None,
+        snapshot=lambda: (
+            {"shoulder_pan": 0.0},
+            {"torque_enabled": False},
+            0.01,
+        ),
+    )
+    acquired = []
+    released = []
+    monkeypatch.setattr(
+        nr,
+        "acquire_joint_stream",
+        lambda *args, **kwargs: acquired.append((args, kwargs)) or session,
+    )
+    monkeypatch.setattr(
+        nr,
+        "release_joint_stream",
+        lambda value, **kwargs: released.append((value, kwargs)),
+    )
+    monkeypatch.setattr(
+        nr,
+        "read_pose",
+        lambda *args, **kwargs: pytest.fail("monitor must not create one-shot read nodes"),
+    )
+    monkeypatch.setattr(
+        nr,
+        "read_config",
+        lambda *args, **kwargs: pytest.fail("monitor must not create one-shot read nodes"),
+    )
+    item = {
+        "ctx": {
+            "transport": "native",
+            "state_topic": "/leader/joint_states",
+            "config_topic": "/leader/joint_config",
+        },
+        "session": None,
+        "stop": StopAfterTwoTicks(),
+        "outputs": {},
+    }
+
+    jm._teach_monitor_worker("leader_pose", item)
+    jm._release_teach_session(item)
+
+    assert acquired == [(
+        (
+            "/leader/joint_states",
+            "",
+            "/leader/joint_config",
+        ),
+        {
+            "timeout": 2.0,
+            "node_name": "blacknode_manual_move_leader_pose",
+        },
+    )]
+    assert released == [(session, {"discard": False})]
+
+
 def test_manual_move_run_once_returns_snapshot_without_monitor(monkeypatch):
     started = []
     monkeypatch.setattr(nr, "available", lambda: (True, ""))
@@ -501,6 +570,34 @@ def test_manual_move_run_once_returns_snapshot_without_monitor(monkeypatch):
     assert result["live"] is False
     assert result["updated_at"].startswith("snapshot ")
     assert math.isclose(result["pose"]["shoulder_pan"], 7.0)
+    assert "one-time pose snapshot" in result["report"]
+    assert started == []
+
+
+def test_manual_move_can_release_without_starting_a_live_monitor(monkeypatch):
+    started = []
+    monkeypatch.setattr(nr, "available", lambda: (True, ""))
+    monkeypatch.setattr(nr, "publish_string", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(
+        nr,
+        "read_config",
+        lambda *a, **k: {"torque_enabled": False, "last_error": ""},
+    )
+    monkeypatch.setattr(
+        nr,
+        "read_pose",
+        lambda *a, **k: {"shoulder_pan": math.radians(7.0)},
+    )
+    monkeypatch.setattr(jm, "_start_teach_monitor", lambda *a, **k: started.append(a))
+    monkeypatch.setattr(jm, "_stop_teach_monitor", lambda *a, **k: None)
+
+    result = _NODE_REGISTRY["ROS2ManualMove"]({
+        "action": "release",
+        "transport": "native",
+        "live_monitor": False,
+    })
+
+    assert result["live"] is False
     assert "one-time pose snapshot" in result["report"]
     assert started == []
 

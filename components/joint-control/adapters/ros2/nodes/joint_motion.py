@@ -635,32 +635,41 @@ def _teach_monitor_worker(run_id: str, item: dict[str, Any]) -> None:
         command_topic = str(ctx.get("command_topic") or robot.get("command_topic") or "/joint_commands")
         units = str(ctx.get("units") or robot.get("units") or "degrees")
         try:
+            session = item.get("session")
             if transport == "native":
-                config = nr.read_config(config_topic, 0.15) or {}
-                pose_rad = nr.read_pose(state_topic, 0.15) or {}
+                if session is None:
+                    session = nr.acquire_joint_stream(
+                        state_topic,
+                        "",
+                        config_topic,
+                        timeout=2.0,
+                        node_name=f"blacknode_manual_move_{run_id}",
+                    )
+                    item["session"] = session
+                    item["session_runtime"] = nr
+                    session.wait_for_pose(1.0)
+                    session.wait_for_config(0.5)
             else:
-                session = item.get("session")
                 if session is None:
                     session = rb.acquire_joint_stream(host, port, state_topic, command_topic, config_topic, timeout=2.0)
                     item["session"] = session
+                    item["session_runtime"] = rb
                     session.wait_for_pose(1.0)
                     session.wait_for_config(0.5)
-                confirmed_config = item.pop("confirmed_config", None)
-                if isinstance(confirmed_config, dict):
-                    session.seed_config(confirmed_config)
-                pose_rad, config, state_age = session.snapshot()
-                if state_age > 2.0:
-                    # The worker heartbeat is not proof that rosbridge is
-                    # still delivering JointState callbacks. Replace a stale
-                    # Topic immediately so mode changes recover without a
-                    # graph or Blacknode restart.
-                    rb.release_joint_stream(session, discard=True)
-                    item["session"] = None
-                    item["error"] = f"joint-state subscription stale ({state_age:.1f}s); reconnecting"
-                    continue
-                if not config:
-                    previous = item.get("outputs") or {}
-                    config = {"torque_enabled": previous.get("torque_enabled", False)}
+            confirmed_config = item.pop("confirmed_config", None)
+            if isinstance(confirmed_config, dict):
+                session.seed_config(confirmed_config)
+            pose_rad, config, state_age = session.snapshot()
+            if state_age > 2.0:
+                # A worker heartbeat is not proof that ROS is still delivering
+                # JointState callbacks. Replace one stale managed subscription;
+                # never create one-shot rclpy nodes inside this polling loop.
+                _release_teach_session(item, discard=True)
+                item["error"] = f"joint-state subscription stale ({state_age:.1f}s); reconnecting"
+                continue
+            if not config:
+                previous = item.get("outputs") or {}
+                config = {"torque_enabled": previous.get("torque_enabled", False)}
             torque_enabled = bool(config.get("torque_enabled", False))
             pose = {name: _from_radians(value, units) for name, value in pose_rad.items()}
             command_error = str(ctx.get("__manual_command_error__") or "")
@@ -733,12 +742,28 @@ def _start_teach_monitor(
     thread.start()
 
 
+def _release_teach_session(
+    item: dict[str, Any],
+    *,
+    discard: bool = False,
+) -> None:
+    session = item.get("session")
+    item["session"] = None
+    runtime = item.pop("session_runtime", None)
+    if session is None:
+        return
+    if runtime is nr:
+        nr.release_joint_stream(session, discard=discard)
+    else:
+        rb.release_joint_stream(session, discard=discard)
+
+
 def _stop_teach_monitor(run_id: str) -> None:
     with _teach_monitor_lock:
         item = _teach_monitors.pop(run_id, None)
     if item is not None:
         item["stop"].set()
-        rb.release_joint_stream(item.get("session"))
+        _release_teach_session(item)
 
 
 def runtime_status() -> dict[str, Any]:
@@ -786,7 +811,7 @@ def stop_runtime_services() -> dict[str, Any]:
         _teach_monitors.clear()
     for item in items:
         item["stop"].set()
-        rb.release_joint_stream(item.get("session"))
+        _release_teach_session(item)
     try:
         from blacknode.pkg.blacknode_skills.follow_person.follow_runtime import stop_continuous_follow_services
         follow_result = stop_continuous_follow_services()
@@ -837,6 +862,7 @@ def stop_runtime_services() -> dict[str, Any]:
         "config_topic": Text(default="/joint_config"),
         "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
+        "live_monitor": Bool(default=True),
         "timeout": Float(default=5.0),
     },
     outputs={
@@ -930,24 +956,25 @@ def ros2_manual_move(ctx: dict) -> dict:
     pose = {name: _from_radians(value, units) for name, value in pose_rad.items()}
     last_error = str(config.get("last_error") or "")
     acknowledged = desired_torque is None or torque_enabled == desired_torque
+    monitor_enabled = run_mode == "live" and bool(ctx.get("live_monitor", True))
 
     if not acknowledged:
         report = f"manual move FAILED: driver did not acknowledge '{action}' within {timeout:g}s"
     elif last_error:
         report = f"manual move WARNING: {last_error}; keep the arm supported and use Stop all if any joint still resists."
-    elif teach_mode and run_mode == "live":
+    elif teach_mode and monitor_enabled:
         report = (
             f"RELEASED: torque is off; support the arm and move it by hand. "
             f"LIVE monitor is reading {len(pose)} joint position(s) from {state_topic}."
         )
     elif teach_mode:
         report = "RELEASED: torque is off. This is a one-time pose snapshot; use Go live to watch hand movement."
-    elif run_mode == "live":
+    elif monitor_enabled:
         report = "HOLDING: live pose monitoring is active; torque is on. Release only when the arm is supported."
     else:
         report = "HOLDING: torque is on. This is a one-time pose snapshot; use Go live for continuous updates."
     updated_at = time.strftime("updated %H:%M:%S")
-    is_live = run_mode == "live"
+    is_live = monitor_enabled
     result = {
         "action": action,
         "live": is_live,
