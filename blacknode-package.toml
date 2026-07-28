@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-controllers"
-version = "0.3.1"
+version = "0.3.2"
 description = "Generic motion, manipulation, arbitration, policy, and safety controllers for Blacknode."
 requires-blacknode = ">=0.3.0"
 layer = "controllers"

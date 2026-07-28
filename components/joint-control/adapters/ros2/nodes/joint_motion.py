@@ -788,7 +788,7 @@ def runtime_status() -> dict[str, Any]:
                     "error": "",
                 })
     try:
-        from blacknode.pkg.blacknode_skills.follow_person.leader_follower_runtime import monitor_entries
+        from blacknode.pkg.blacknode_skills.follow.leader_follower_runtime import monitor_entries
         leader_follower_entries = monitor_entries()
     except Exception:
         leader_follower_entries = []
@@ -813,7 +813,7 @@ def stop_runtime_services() -> dict[str, Any]:
         item["stop"].set()
         _release_teach_session(item)
     try:
-        from blacknode.pkg.blacknode_skills.follow_person.follow_runtime import stop_continuous_follow_services
+        from blacknode.pkg.blacknode_skills.follow.follow_runtime import stop_continuous_follow_services
         follow_result = stop_continuous_follow_services()
     except ModuleNotFoundError:
         follow_result = {"ok": True, "stopped": 0, "error": ""}
@@ -821,7 +821,7 @@ def stop_runtime_services() -> dict[str, Any]:
         follow_result = {"ok": False, "stopped": 0, "error": str(exc)}
     stopped_follow = int(follow_result.get("stopped") or 0)
     try:
-        from blacknode.pkg.blacknode_skills.follow_person.leader_follower_runtime import stop_leader_follower_services
+        from blacknode.pkg.blacknode_skills.follow.leader_follower_runtime import stop_leader_follower_services
         leader_follower_result = stop_leader_follower_services()
     except ModuleNotFoundError:
         leader_follower_result = {"ok": True, "stopped": 0, "error": ""}
